@@ -10,24 +10,64 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+load_dotenv(BASE_DIR / '.env')
 
-# Quick-start development settings - unsuitable for production
+
+def _env_bool(name, default=False):
+    return os.getenv(name, str(default)).strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def _env_list(name, default=''):
+    return [v.strip() for v in os.getenv(name, default).split(',') if v.strip()]
+
+
+# All security-sensitive settings come from the environment. The defaults keep
+# local development easy; production must set them explicitly in .env.
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-x)cvuc749o1_f4==d4(5kbpcouk-*bgex)t^o_ev*2tr%cwdko'
+DEBUG = _env_bool('DJANGO_DEBUG', True)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# A dev-only fallback key is used when DEBUG is on. In production the app
+# refuses to start without a real DJANGO_SECRET_KEY.
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', '')
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = 'django-insecure-dev-only-key-do-not-use-in-production'
+    else:
+        raise RuntimeError(
+            'DJANGO_SECRET_KEY must be set when DJANGO_DEBUG is off. '
+            'Generate one with: python -c "from django.core.management.utils '
+            'import get_random_secret_key; print(get_random_secret_key())"'
+        )
 
-# Dev: allow access from other devices on your LAN (e.g. your phone). Tighten
-# this before any real deployment.
-ALLOWED_HOSTS = ['*'] if DEBUG else []
+# Dev defaults to '*' so your phone can reach the server over the LAN.
+# Production must list real hostnames, e.g. DJANGO_ALLOWED_HOSTS=example.com
+ALLOWED_HOSTS = _env_list('DJANGO_ALLOWED_HOSTS', '*' if DEBUG else '')
+
+# Origin allowed to call the API from the browser (the PWA is same-origin, so
+# this only matters for the separate Streamlit frontend).
+CORS_ALLOW_ORIGIN = os.getenv('CORS_ALLOW_ORIGIN', '*')
+
+# ── HTTPS hardening (only active when DEBUG is off) ──────────────────────────
+if not DEBUG:
+    SECURE_SSL_REDIRECT = _env_bool('DJANGO_SECURE_SSL_REDIRECT', True)
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.getenv('DJANGO_HSTS_SECONDS', 31536000))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    # Trust the reverse proxy's HTTPS header (Heroku/Render/nginx style).
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    CSRF_TRUSTED_ORIGINS = _env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
 
 
 # Application definition
