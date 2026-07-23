@@ -220,17 +220,11 @@ with st.sidebar:
         )
 
         options = result["options"]
-        st.radio(
-            "Route options",
-            list(range(len(options))),
-            format_func=lambda i: (
-                f"Option {i+1}: "
-                + " → ".join(l["route_label"] for l in options[i]["legs"])
-                + f"  ·  {options[i]['predicted_total_minutes']} min"
-            ),
-            key="sel_option",
-        )
+        st.caption("👇 Tap a route to show it on the map")
         pick = st.session_state.get("sel_option", 0)
+        if pick >= len(options):
+            pick = 0
+        st.session_state["sel_option"] = pick
 
         for idx, opt in enumerate(options):
             border = "2px solid #1976D2" if idx == pick else "1px solid #ddd"
@@ -277,6 +271,14 @@ with st.sidebar:
                 f"</div>",
                 unsafe_allow_html=True,
             )
+            if st.button(
+                "✅ Showing on map" if idx == pick else "Show this route on map",
+                key=f"routeopt_{idx}",
+                use_container_width=True,
+                type="primary" if idx == pick else "secondary",
+            ):
+                st.session_state["sel_option"] = idx
+                st.rerun()
 
 # ── SIDEBAR (bottom): settings ────────────────────────────────────────────────
 with st.sidebar:
