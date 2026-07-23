@@ -222,7 +222,9 @@
       if (!j.available) { box.innerHTML = `<div class="msg warn">${j.message||'No journey.'}</div>`; return; }
       if (!j.options || !j.options.length) { box.innerHTML = `<div class="msg">${j.message||'No route found.'}</div>`; return; }
       box.innerHTML = `<div class="status">👇 Tap a route to show it on the map</div>` +
-                      j.options.map((o,i)=>cardHtml(o,i)).join('');
+                      j.options.map((o,i)=>cardHtml(o,i)).join('') +
+                      `<div class="status">Times are from the published schedule.
+                       Delay is a <b>model estimate</b>, not a live measurement.</div>`;
       box.querySelectorAll('.card').forEach(c => c.onclick = () => {
         state.sel = +c.dataset.idx; renderResults(); drawJourney();
       });

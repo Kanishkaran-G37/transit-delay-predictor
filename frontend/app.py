@@ -221,6 +221,8 @@ with st.sidebar:
 
         options = result["options"]
         st.caption("👇 Tap a route to show it on the map")
+        st.caption("⚠️ Times come from the published schedule. Delay is a "
+                   "**model estimate**, not a live measurement.")
         pick = st.session_state.get("sel_option", 0)
         if pick >= len(options):
             pick = 0

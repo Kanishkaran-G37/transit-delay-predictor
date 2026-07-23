@@ -78,10 +78,21 @@ The default delay model is trained on synthetic rules. To train it on *real*
 observed delays, we derive schedule adherence ourselves — Delhi OTD publishes
 **only** GTFS-Realtime VehiclePositions, with no TripUpdates feed.
 
-> ⚠️ **Prerequisite: a fresh bus GTFS.** The logger can only measure a bus whose
-> `trip_id` exists in `ml/data/trips.txt`. With a stale export only ~1% of live
-> trips match and the resulting delays are meaningless. Re-download the current
-> bus static GTFS from https://otd.delhi.gov.in before collecting data.
+> ⛔ **Currently blocked by the data source (verified July 2026).** Measuring
+> delay needs a live bus to be matched to its scheduled trip, and Delhi OTD's
+> published data does not allow it:
+>
+> - only **~1%** of live `trip_id`s exist in the static GTFS, so buses cannot be
+>   matched to their schedule (re-downloading gives a **byte-identical** file —
+>   the static export simply is not kept in sync with the live feed)
+> - the feed's `speed` field is present but **zero-filled** for every vehicle,
+>   and `bearing` is absent
+>
+> Verify this yourself with `python ingestion/check_gtfs_freshness.py`.
+> Until OTD publishes a matching static schedule, **the delay shown in the app is
+> a model estimate, not a measurement**, and is labelled as such in the UI.
+> The remaining honest path is to derive real speeds by tracking each vehicle
+> across successive polls (not yet implemented).
 
 1. Set `OTD_API_KEY` in `.env` (free: https://otd.delhi.gov.in).
 2. **Collect data** — run the logger on a schedule (e.g. every 5 min) for
