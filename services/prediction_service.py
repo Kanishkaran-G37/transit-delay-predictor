@@ -50,7 +50,7 @@ def predict_delay(weather_condition, temperature, humidity,
     # Calculate ETA
     now_str = now.strftime('%H:%M')
     eta_minutes = now.minute + int(predicted_delay)
-    eta_hour = now.hour + eta_minutes // 60
+    eta_hour = (now.hour + eta_minutes // 60) % 24   # wrap past midnight
     eta_min = eta_minutes % 60
     eta_str = f"{eta_hour:02d}:{eta_min:02d}"
 

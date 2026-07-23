@@ -75,8 +75,13 @@ streamlit run frontend/app.py        # frontend on :8501
 ## Making the delay model real (measured delays)
 
 The default delay model is trained on synthetic rules. To train it on *real*
-observed delays from GTFS-Realtime TripUpdates (which report actual seconds
-late/early per stop):
+observed delays, we derive schedule adherence ourselves — Delhi OTD publishes
+**only** GTFS-Realtime VehiclePositions, with no TripUpdates feed.
+
+> ⚠️ **Prerequisite: a fresh bus GTFS.** The logger can only measure a bus whose
+> `trip_id` exists in `ml/data/trips.txt`. With a stale export only ~1% of live
+> trips match and the resulting delays are meaningless. Re-download the current
+> bus static GTFS from https://otd.delhi.gov.in before collecting data.
 
 1. Set `OTD_API_KEY` in `.env` (free: https://otd.delhi.gov.in).
 2. **Collect data** — run the logger on a schedule (e.g. every 5 min) for
