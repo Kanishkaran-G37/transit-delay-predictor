@@ -17,9 +17,17 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
+from config import pwa
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/routes/', include('routes.urls')),
     path('api/stops/', include('stops.urls')),
     path('api/', include('predictions.urls')),
+
+    # Installable PWA frontend (served on the same origin as the API).
+    path('', pwa.index),
+    path('sw.js', pwa.service_worker),
+    path('manifest.webmanifest', pwa.manifest),
+    path('icon-<int:size>.png', pwa.icon),
 ]

@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#1976D2" />
+  <title>Delhi Transit</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    :root { --blue:#1976D2; --purple:#6A1B9A; --bg:#f4f6f9; --card:#fff; --ink:#1a2230; --muted:#6b7688; }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin:0; height:100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg); color: var(--ink);
+      display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
+    }
+    header {
+      background: var(--blue); color:#fff; padding: 12px 16px;
+      padding-top: calc(12px + env(safe-area-inset-top));
+      display:flex; align-items:center; justify-content:space-between; gap:8px;
+    }
+    header h1 { font-size:18px; margin:0; font-weight:700; }
+    .chips { display:flex; gap:6px; font-size:12px; }
+    .chip { background:rgba(255,255,255,.18); padding:3px 8px; border-radius:20px; white-space:nowrap; }
+
+    .app { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+    .panel { padding:12px 14px; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+    #map { width:100%; height:42vh; flex-shrink:0; }
+
+    @media (min-width: 860px) {
+      .app { flex-direction: row; }
+      .panel { width:400px; flex-shrink:0; border-right:1px solid #e2e6ee; }
+      #map { height:auto; flex:1; }
+    }
+
+    .field { position:relative; margin-bottom:10px; }
+    .field label { display:block; font-size:12px; font-weight:600; color:var(--muted); margin-bottom:4px; }
+    .field input {
+      width:100%; padding:12px 12px; font-size:15px; border:1px solid #d7dce6;
+      border-radius:12px; background:#fff; outline:none;
+    }
+    .field input:focus { border-color: var(--blue); }
+    .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; }
+    .ac {
+      position:absolute; left:0; right:0; top:100%; z-index:1000; background:#fff;
+      border:1px solid #d7dce6; border-radius:12px; margin-top:4px; max-height:240px;
+      overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,.12); display:none;
+    }
+    .ac div { padding:11px 12px; font-size:14px; border-bottom:1px solid #f0f2f6; cursor:pointer; }
+    .ac div:active, .ac div:hover { background:#eef4ff; }
+
+    .modes { display:flex; gap:8px; margin-bottom:10px; }
+    .mode {
+      flex:1; text-align:center; padding:9px; border-radius:12px; font-size:14px; font-weight:600;
+      border:1.5px solid #d7dce6; background:#fff; color:var(--muted); cursor:pointer; user-select:none;
+    }
+    .mode.on { border-color:var(--blue); background:#eaf2ff; color:var(--blue); }
+
+    .go {
+      width:100%; padding:14px; border:none; border-radius:12px; background:var(--blue);
+      color:#fff; font-size:16px; font-weight:700; cursor:pointer;
+    }
+    .go:active { opacity:.9; }
+
+    .msg { padding:12px; border-radius:12px; background:#fff; color:var(--muted); font-size:14px; margin-top:12px; }
+    .msg.warn { background:#fff8e1; color:#8a6d00; }
+
+    .card {
+      background:var(--card); border:2px solid #e5e9f0; border-radius:16px; padding:12px;
+      margin-top:12px; cursor:pointer; transition:border-color .15s, box-shadow .15s;
+    }
+    .card.sel { border-color:var(--blue); box-shadow:0 6px 18px rgba(25,118,210,.18); }
+    .card .top { display:flex; justify-content:space-between; align-items:baseline; }
+    .card .time { font-size:19px; font-weight:800; }
+    .card .sub { font-size:12px; color:var(--muted); }
+    .leg { margin:5px 0; font-size:13px; color:var(--muted); }
+    .badge { color:#fff; padding:2px 8px; border-radius:6px; font-weight:800; font-size:12px; }
+    .xfer { font-size:12px; color:#94a0b3; margin:2px 0; }
+    .delay { display:inline-block; margin-top:8px; padding:3px 10px; border-radius:20px; font-weight:700; font-size:12px; }
+    .d-ok { background:#e8f5e9; color:#1b5e20; }
+    .d-minor, .d-moderate { background:#fff3e0; color:#e65100; }
+    .d-severe { background:#ffebee; color:#b71c1c; }
+
+    #install {
+      display:none; position:fixed; bottom:16px; left:50%; transform:translateX(-50%);
+      background:#111; color:#fff; padding:10px 16px; border-radius:24px; font-size:14px;
+      box-shadow:0 6px 20px rgba(0,0,0,.3); z-index:2000; cursor:pointer; border:none;
+    }
+    .status { font-size:12px; color:var(--muted); padding:6px 14px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🚌 Delhi Transit</h1>
+    <div class="chips" id="chips"></div>
+  </header>
+
+  <div class="app">
+    <div class="panel">
+      <div class="field">
+        <label><span class="dot" style="background:#22c55e"></span>From</label>
+        <input id="fromInput" placeholder="Start stop or station" autocomplete="off" />
+        <div class="ac" id="fromAc"></div>
+      </div>
+      <div class="field">
+        <label><span class="dot" style="background:#ef4444"></span>To</label>
+        <input id="toInput" placeholder="Destination stop or station" autocomplete="off" />
+        <div class="ac" id="toAc"></div>
+      </div>
+
+      <div class="modes">
+        <div class="mode on" data-mode="bus">🚌 Bus</div>
+        <div class="mode" data-mode="metro">🚇 Metro</div>
+      </div>
+
+      <button class="go" id="go">🔍 Find routes</button>
+
+      <div id="results"></div>
+    </div>
+
+    <div id="map"></div>
+  </div>
+
+  <div class="status" id="mapStatus"></div>
+  <button id="install">📲 Install app</button>
+
+  <script>
+    const API = '/api';
+    const state = { from:null, to:null, modes:['bus'], journey:null, sel:0, demo:false };
+
+    // ── Autocomplete ─────────────────────────────────────────────────────────
+    function setupAutocomplete(inputId, acId, onPick) {
+      const input = document.getElementById(inputId);
+      const ac = document.getElementById(acId);
+      let timer;
+      input.addEventListener('input', () => {
+        onPick(null);
+        clearTimeout(timer);
+        const q = input.value.trim();
+        if (q.length < 2) { ac.style.display='none'; return; }
+        timer = setTimeout(async () => {
+          try {
+            const r = await fetch(`${API}/stops-list/?q=${encodeURIComponent(q)}`);
+            const d = await r.json();
+            const items = (d.stops||[]).slice(0, 20);
+            ac.innerHTML = items.map(s =>
+              `<div data-id="${s.stop_id}" data-name="${s.stop_name.replace(/"/g,'&quot;')}"
+                    data-lat="${s.lat}" data-lon="${s.lon}">${s.stop_name}
+                    <span style="color:#9aa6b8">· #${s.stop_id}</span></div>`).join('');
+            ac.style.display = items.length ? 'block' : 'none';
+            ac.querySelectorAll('div').forEach(el => el.onclick = () => {
+              const stop = { stop_id: el.dataset.id, stop_name: el.dataset.name,
+                             lat: +el.dataset.lat, lon: +el.dataset.lon };
+              input.value = stop.stop_name;
+              ac.style.display = 'none';
+              onPick(stop);
+            });
+          } catch (e) { ac.style.display='none'; }
+        }, 250);
+      });
+      document.addEventListener('click', e => {
+        if (!ac.contains(e.target) && e.target !== input) ac.style.display='none';
+      });
+    }
+    setupAutocomplete('fromInput', 'fromAc', s => state.from = s);
+    setupAutocomplete('toInput', 'toAc', s => state.to = s);
+
+    // ── Mode chips ───────────────────────────────────────────────────────────
+    document.querySelectorAll('.mode').forEach(el => el.onclick = () => {
+      el.classList.toggle('on');
+      state.modes = [...document.querySelectorAll('.mode.on')].map(m => m.dataset.mode);
+      if (!state.modes.length) { el.classList.add('on'); state.modes=[el.dataset.mode]; }
+    });
+
+    // ── Weather + traffic chips ──────────────────────────────────────────────
+    async function loadConditions() {
+      try {
+        const w = await (await fetch(`${API}/weather/?city=Delhi`)).json();
+        const t = await (await fetch(`${API}/traffic/?lat=28.6315&lon=77.2167`)).json();
+        const ti = {low:'🟢', medium:'🟡', high:'🔴'}[t.traffic_level] || '⚪';
+        document.getElementById('chips').innerHTML =
+          `<span class="chip">🌡️ ${Math.round(w.temperature)}°C ${w.weather_condition}</span>` +
+          `<span class="chip">${ti} ${t.traffic_level}</span>`;
+      } catch (e) {}
+    }
+
+    // ── Journey planning ─────────────────────────────────────────────────────
+    const DSEV = { ok:'d-ok', minor:'d-minor', moderate:'d-moderate', severe:'d-severe' };
+    function legHtml(leg) {
+      if (leg.mode === 'walk')
+        return `<div class="leg">🚶 <b>Walk ${leg.ride_minutes} min</b> — ${leg.board_stop_name} → ${leg.alight_stop_name}</div>`;
+      const bg = leg.mode === 'metro' ? 'var(--purple)' : 'var(--blue)';
+      return `<div class="leg"><span class="badge" style="background:${bg}">${leg.icon||'🚌'} ${leg.route_label}</span>
+              ${leg.board_stop_name} → ${leg.alight_stop_name}
+              (${leg.num_stops} stops, ~${leg.ride_minutes} min)</div>`;
+    }
+    function cardHtml(opt, idx) {
+      const n = opt.transfers;
+      const tag = n === 0 ? 'DIRECT' : n + ' TRANSFER' + (n>1?'S':'');
+      let legs = '', prev = null;
+      opt.legs.forEach(leg => {
+        if (leg.mode !== 'walk' && (prev==='bus'||prev==='metro'))
+          legs += `<div class="xfer">↳ transfer at ${leg.board_stop_name}</div>`;
+        legs += legHtml(leg); prev = leg.mode;
+      });
+      return `<div class="card ${idx===state.sel?'sel':''}" data-idx="${idx}">
+        <div class="top"><span class="time">${opt.depart} → ${opt.arrive}</span>
+        <span class="sub">${opt.scheduled_minutes} min · ${tag}</span></div>
+        ${legs}
+        <div><span class="delay ${DSEV[opt.delay_severity]||'d-minor'}">${opt.delay_text}</span>
+        <span class="sub"> · ETA <b>${opt.arrive_predicted}</b></span></div>
+      </div>`;
+    }
+    function renderResults() {
+      const box = document.getElementById('results');
+      const j = state.journey;
+      if (!j) { box.innerHTML=''; return; }
+      if (!j.available) { box.innerHTML = `<div class="msg warn">${j.message||'No journey.'}</div>`; return; }
+      if (!j.options || !j.options.length) { box.innerHTML = `<div class="msg">${j.message||'No route found.'}</div>`; return; }
+      box.innerHTML = `<div class="status">👇 Tap a route to show it on the map</div>` +
+                      j.options.map((o,i)=>cardHtml(o,i)).join('');
+      box.querySelectorAll('.card').forEach(c => c.onclick = () => {
+        state.sel = +c.dataset.idx; renderResults(); drawJourney();
+      });
+    }
+    async function findRoutes() {
+      if (!state.from || !state.to) { alert('Pick a start and destination from the suggestions.'); return; }
+      const go = document.getElementById('go'); go.textContent = '⏳ Finding…'; go.disabled = true;
+      try {
+        const modes = state.modes.join(',');
+        const r = await fetch(`${API}/journey/?start=${state.from.stop_id}&end=${state.to.stop_id}&modes=${modes}`);
+        state.journey = await r.json(); state.sel = 0;
+        renderResults(); drawJourney();
+      } catch (e) { document.getElementById('results').innerHTML = `<div class="msg warn">Error: ${e}</div>`; }
+      go.textContent = '🔍 Find routes'; go.disabled = false;
+    }
+    document.getElementById('go').onclick = findRoutes;
+
+    // ── Map + live buses ─────────────────────────────────────────────────────
+    const map = L.map('map', { zoomControl:true }).setView([28.63, 77.22], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      { maxZoom:19, attribution:'© OpenStreetMap' }).addTo(map);
+    let journeyLayer = L.layerGroup().addTo(map);
+    let busLayer = L.layerGroup().addTo(map);
+    const busIcon = L.divIcon({ html:'<div style="font-size:22px;transform:translate(-11px,-11px)">🚌</div>',
+                               className:'', iconSize:[22,22] });
+    let liveRouteIds = [];
+
+    function drawJourney() {
+      journeyLayer.clearLayers();
+      liveRouteIds = [];
+      const j = state.journey;
+      if (!j || !j.options || !j.options.length) return;
+      const opt = j.options[state.sel];
+      let pts = [];
+      opt.legs.forEach((leg, i) => {
+        if (!leg.geometry || !leg.geometry.length) return;
+        const walk = leg.mode === 'walk';
+        const color = walk ? '#777' : (leg.mode === 'metro' ? '#6A1B9A' : '#1976D2');
+        L.polyline(leg.geometry, { color, weight: walk?4:6, opacity:.85,
+          dashArray: walk?'5,9':null }).addTo(journeyLayer);
+        pts = pts.concat(leg.geometry);
+        if (leg.mode === 'bus' && leg.route_id) liveRouteIds.push(leg.route_id);
+      });
+      if (state.from) L.marker([state.from.lat, state.from.lon]).addTo(journeyLayer).bindPopup('Start');
+      if (state.to) L.marker([state.to.lat, state.to.lon]).addTo(journeyLayer).bindPopup('Destination');
+      if (pts.length) map.fitBounds(pts, { padding:[40,40] });
+      refreshBuses();
+    }
+    async function refreshBuses() {
+      busLayer.clearLayers();
+      if (!liveRouteIds.length) { document.getElementById('mapStatus').textContent=''; return; }
+      let count = 0;
+      for (const rid of liveRouteIds) {
+        try {
+          const d = await (await fetch(`${API}/vehicles/?route_id=${rid}&demo=${state.demo}`)).json();
+          (d.vehicles||[]).forEach(b => { L.marker([b.lat,b.lon],{icon:busIcon}).addTo(busLayer)
+            .bindPopup(`🚌 ${b.label||b.vehicle_id}<br>${b.speed_kmh??''} km/h`); count++; });
+        } catch (e) {}
+      }
+      document.getElementById('mapStatus').textContent =
+        `🔴 ${count} live bus(es) · updated ${new Date().toLocaleTimeString()}`;
+    }
+    setInterval(() => { if (liveRouteIds.length) refreshBuses(); }, 8000);
+
+    // ── PWA install + service worker ─────────────────────────────────────────
+    if ('serviceWorker' in navigator)
+      navigator.serviceWorker.register('/sw.js').catch(()=>{});
+    let deferred;
+    window.addEventListener('beforeinstallprompt', e => {
+      e.preventDefault(); deferred = e;
+      const b = document.getElementById('install'); b.style.display='block';
+      b.onclick = async () => { b.style.display='none'; deferred.prompt(); deferred=null; };
+    });
+
+    loadConditions();
+  </script>
+</body>
+</html>
