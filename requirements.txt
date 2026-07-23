@@ -1,0 +1,16 @@
+Django==6.0.7
+djangorestframework==3.17.1
+requests==2.34.2
+python-dotenv==1.2.2
+pandas
+numpy
+scikit-learn
+joblib
+# Real-time bus tracking (GTFS-Realtime)
+gtfs-realtime-bindings==2.1.0
+protobuf==7.35.1
+# Frontend
+streamlit==1.60.0
+streamlit-folium==0.27.3
+folium==0.20.0
+streamlit-autorefresh

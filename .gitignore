@@ -1,0 +1,26 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Django
+db.sqlite3
+*.log
+
+# ML artifacts (regenerate with ml/train_model.py and the index builder)
+*.joblib
+
+# Data — large GTFS feeds under OTD / DMRC usage terms; not redistributed.
+# Download them per the README into ml/data/ (buses) and ml/data/dmrc/ (metro).
+ml/data/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
