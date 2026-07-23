@@ -77,5 +77,6 @@ streamlit run frontend/app.py        # frontend on :8501
 - **Delay model is synthetic** — trained on rule-generated data, and reused
   for metro too. Routing and times are real; the delay number is a placeholder
   until it's trained on measured live-vs-schedule data.
-- **Journeys are single-mode** (bus-only or metro-only). Mixed bus↔metro trips
-  with walking transfers are a planned enhancement.
+- **Mixed bus↔metro trips** use short walking transfers between nearby stops
+  (≤400m). Walking transfers are cross-mode only; long walks and 3+ leg mixed
+  trips aren't modelled.

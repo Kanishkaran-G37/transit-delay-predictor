@@ -17,6 +17,7 @@ Index contents (all ids are strings, metro ids prefixed 'M-'):
 """
 import os
 import joblib
+import numpy as np
 import pandas as pd
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -24,6 +25,12 @@ DATA_PATH = os.path.join(BASE_DIR, 'ml', 'data')
 OUT_PATH = os.path.join(DATA_PATH, 'journey_index.joblib')
 
 SERVICE_MINUTES = 18 * 60  # assumed daily service span for headway estimate
+
+# Walking transfers between nearby stops of DIFFERENT modes (bus <-> metro).
+WALK_RADIUS_M = 400
+WALK_SPEED_KMH = 4.5
+MAX_WALK_LINKS = 6      # keep only the nearest few per stop
+EARTH_KM = 6371.0
 
 # Each feed: directory of GTFS .txt files, its mode, and an id prefix.
 FEEDS = [
@@ -122,6 +129,52 @@ def _process_feed(feed):
     }
 
 
+def _build_walk_links(stops):
+    """Cross-mode walking links: {stop_id: [(other_stop_id, walk_minutes), ...]}.
+
+    Links a bus stop to nearby metro stations (and vice-versa) within
+    WALK_RADIUS_M, so the planner can chain 'ride -> walk -> ride' across modes.
+    """
+    from sklearn.neighbors import BallTree
+
+    bus = [(sid, m) for sid, m in stops.items() if m['mode'] == 'bus']
+    metro = [(sid, m) for sid, m in stops.items() if m['mode'] == 'metro']
+    if not bus or not metro:
+        print("  (no walk links — need both bus and metro loaded)")
+        return {}
+
+    radius_rad = (WALK_RADIUS_M / 1000.0) / EARTH_KM
+
+    def coords(items):
+        return np.radians([[m['lat'], m['lon']] for _, m in items])
+
+    links = {}
+
+    def add(a_id, b_id, dist_km):
+        walk_min = max(1, round(dist_km / WALK_SPEED_KMH * 60))
+        links.setdefault(a_id, []).append((b_id, walk_min))
+
+    # For every bus stop, find metro stations within the radius (and link both ways).
+    metro_tree = BallTree(coords(metro), metric='haversine')
+    idx, dist = metro_tree.query_radius(coords(bus), r=radius_rad,
+                                        return_distance=True, sort_results=True)
+    for bi, (neigh, dists) in enumerate(zip(idx, dist)):
+        b_id = bus[bi][0]
+        for mj, d in list(zip(neigh, dists))[:MAX_WALK_LINKS]:
+            m_id = metro[mj][0]
+            km = d * EARTH_KM
+            add(b_id, m_id, km)
+            add(m_id, b_id, km)
+
+    # Trim each stop's links to the nearest few.
+    for sid in links:
+        links[sid] = sorted(links[sid], key=lambda x: x[1])[:MAX_WALK_LINKS]
+
+    print(f"  walk links: {sum(len(v) for v in links.values()):,} "
+          f"across {len(links):,} stops")
+    return links
+
+
 def build():
     merged = {k: {} for k in ('stops', 'route_names', 'route_mode',
                               'route_stops', 'route_cum', 'route_headway')}
@@ -140,6 +193,9 @@ def build():
             stop_to_routes.setdefault(sid, set()).update(routes)
 
     merged['stop_to_routes'] = {k: sorted(v) for k, v in stop_to_routes.items()}
+
+    print("Building cross-mode walking links...")
+    merged['walk_links'] = _build_walk_links(merged['stops'])
 
     joblib.dump(merged, OUT_PATH)
     print(f"\n[OK] Saved journey index -> {OUT_PATH}")

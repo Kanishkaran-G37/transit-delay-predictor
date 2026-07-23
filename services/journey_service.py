@@ -25,6 +25,7 @@ ROUTE_CUM = _INDEX['route_cum']
 ROUTE_HEADWAY = _INDEX['route_headway']
 STOP_TO_ROUTES = _INDEX['stop_to_routes']
 ROUTE_MODE = _INDEX.get('route_mode', {})
+WALK_LINKS = _INDEX.get('walk_links', {})  # {stop_id: [(other_id, walk_min), ...]}
 
 # Which modes actually have data loaded (e.g. {'bus'} until DMRC is added).
 MODES_LOADED = set(ROUTE_MODE.values()) or {'bus'}
@@ -107,6 +108,31 @@ def _make_leg(route_id, i, j, depart_s):
         'depart': _fmt_clock(depart_s),
         'arrive': _fmt_clock(arrive_s),
         'geometry': _leg_geometry(route_id, i, j),
+    }
+    return leg, arrive_s
+
+
+def _walk_leg(t1, t2, walk_min, depart_s):
+    """Build a walking-transfer leg between two nearby stops."""
+    a, b = STOPS.get(t1, {}), STOPS.get(t2, {})
+    arrive_s = depart_s + walk_min * 60
+    leg = {
+        'route_id': None,
+        'route_label': f'Walk {walk_min} min',
+        'mode': 'walk',
+        'icon': '🚶',
+        'agency': '',
+        'board_stop_id': t1,
+        'board_stop_name': a.get('name', t1),
+        'alight_stop_id': t2,
+        'alight_stop_name': b.get('name', t2),
+        'num_stops': 0,
+        'ride_minutes': walk_min,
+        'headway_min': 0,
+        'depart': _fmt_clock(depart_s),
+        'arrive': _fmt_clock(arrive_s),
+        'geometry': ([[a['lat'], a['lon']], [b['lat'], b['lon']]]
+                     if a and b else []),
     }
     return leg, arrive_s
 
@@ -252,6 +278,38 @@ def _two_transfer_options(start_id, end_id, allowed, max_candidates=4, scan_limi
     return candidates[:max_candidates]
 
 
+def _walk_transfer_options(start_id, end_id, allowed, max_candidates=4):
+    """ride (start -> t1), WALK (t1 -> t2), ride (t2 -> end). Enables mixed
+    bus<->metro journeys, since bus stops and metro stations don't share ids."""
+    reach1 = _reach_from_start(start_id, allowed)
+    reach3 = _reach_to_end(end_id, allowed)
+    if not reach1 or not reach3:
+        return []
+
+    seen = set()
+    candidates = []
+    for t1, (r1, i, s1, j1) in reach1.items():
+        for t2, walk_min in WALK_LINKS.get(t1, []):
+            info3 = reach3.get(t2)
+            if not info3:
+                continue
+            r3, j3, s3, k = info3
+            if r3 == r1:
+                continue
+            # Only keep genuinely cross-mode walks (that's the point here).
+            if ROUTE_MODE.get(r1) == ROUTE_MODE.get(r3):
+                continue
+            key = (r1, t1, t2, r3)
+            if key in seen:
+                continue
+            seen.add(key)
+            total = s1 + walk_min * 60 + s3
+            candidates.append((total, t1, t2, walk_min, (r1, i, j1), (r3, j3, k)))
+
+    candidates.sort(key=lambda c: c[0])
+    return candidates[:max_candidates]
+
+
 def plan_journey(start_id, end_id, modes=('bus',),
                  weather=None, traffic_level='medium', max_options=4):
     """Return ranked journey options between two stop ids.
@@ -316,6 +374,24 @@ def plan_journey(start_id, end_id, modes=('bus',),
             'arrive_s': arr2,
         }))
 
+    # ── Mixed bus<->metro (ride, walk, ride) — only when both modes allowed ──
+    if len(allowed) > 1:
+        for (total, t1, t2, walk_min, (r1, i, j1), (r3, j3, k)) in \
+                _walk_transfer_options(start_id, end_id, allowed):
+            depart_s = now_s + ROUTE_HEADWAY.get(r1, 15) * 60 // 2
+            leg1, arr1 = _make_leg(r1, i, j1, depart_s)
+            walk, arrw = _walk_leg(t1, t2, walk_min, arr1)
+            depart3_s = arrw + ROUTE_HEADWAY.get(r3, 15) * 60 // 2
+            leg3, arr3 = _make_leg(r3, j3, k, depart3_s)
+            raw.append((arr3 - now_s, {
+                'type': 'mixed',
+                'transfers': 1,
+                'transfer_stop_name': STOPS.get(t1, {}).get('name', t1),
+                'legs': [leg1, walk, leg3],
+                'depart_s': depart_s,
+                'arrive_s': arr3,
+            }))
+
     # ── Two-transfer fallback (only when nothing simpler connects) ───────────
     if not raw:
         for (total_ride, t1, t2, (r1, i, j1), (r2, p1, m), (r3, j3, k)) in \
@@ -342,8 +418,9 @@ def plan_journey(start_id, end_id, modes=('bus',),
                        'They may be too far apart or poorly connected.',
         }
 
-    # Rank: fewer transfers first, then earlier arrival.
-    raw.sort(key=lambda x: (x[1]['transfers'], x[0]))
+    # Rank by total time with a mild per-transfer penalty, so a much faster
+    # metro+walk trip can beat a slow direct bus, while ties prefer fewer legs.
+    raw.sort(key=lambda x: x[0] + x[1]['transfers'] * 300)
     raw = raw[:max_options]
 
     # ── Attach ML-predicted delay to each option ─────────────────────────────

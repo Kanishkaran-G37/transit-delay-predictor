@@ -58,13 +58,17 @@ MAP_TEMPLATE = """
     const legColors = ['#1976D2', '#E65100', '#6A1B9A'];
     let allPts = [];
     (CFG.legs || []).forEach((leg, i) => {
-      const color = legColors[i % legColors.length];
-      if (leg.geometry && leg.geometry.length) {
-        L.polyline(leg.geometry, { color: color, weight: 6, opacity: 0.85 }).addTo(map);
-        leg.geometry.forEach(pt => {
-          L.circleMarker(pt, { radius: 3, color: color, fill: true, fillOpacity: 0.9 }).addTo(map);
-          allPts.push(pt);
-        });
+      if (!leg.geometry || !leg.geometry.length) return;
+      const isWalk = leg.mode === 'walk';
+      const color = isWalk ? '#777' : (leg.mode === 'metro' ? '#6A1B9A' : legColors[i % legColors.length]);
+      L.polyline(leg.geometry, {
+        color: color, weight: isWalk ? 4 : 6, opacity: 0.85,
+        dashArray: isWalk ? '5,9' : null
+      }).addTo(map);
+      leg.geometry.forEach(pt => allPts.push(pt));
+      if (!isWalk) {
+        leg.geometry.forEach(pt =>
+          L.circleMarker(pt, { radius: 3, color: color, fill: true, fillOpacity: 0.9 }).addTo(map));
       }
     });
 
@@ -231,23 +235,34 @@ with st.sidebar:
         for idx, opt in enumerate(options):
             border = "2px solid #1976D2" if idx == pick else "1px solid #ddd"
             legs_html = ""
-            for li, leg in enumerate(opt["legs"]):
-                if li > 0:
+            prev_mode = None
+            for leg in opt["legs"]:
+                mode = leg.get("mode")
+                if mode == "walk":
                     legs_html += (
-                        f"<div style='color:#888;font-size:12px;margin:2px 0'>"
-                        f"↳ transfer at {leg['board_stop_name']}</div>"
+                        f"<div style='margin:3px 0;color:#666;font-size:12px'>"
+                        f"🚶 <b>Walk {leg['ride_minutes']} min</b> — "
+                        f"{leg['board_stop_name']} → {leg['alight_stop_name']}</div>"
                     )
-                badge_bg = "#6A1B9A" if leg.get("mode") == "metro" else "#1976D2"
-                legs_html += (
-                    f"<div style='margin:3px 0'>"
-                    f"<span style='background:{badge_bg};color:white;padding:1px 8px;"
-                    f"border-radius:4px;font-weight:700;font-size:13px'>"
-                    f"{leg.get('icon', '🚌')} {leg['route_label']}</span> "
-                    f"<span style='color:#888;font-size:12px'>"
-                    f"{leg['board_stop_name']} → {leg['alight_stop_name']} "
-                    f"({leg['num_stops']} stops, ~{leg['ride_minutes']} min, "
-                    f"every {leg['headway_min']} min)</span></div>"
-                )
+                else:
+                    # Same-stop transfer between two rides (no walk in between).
+                    if prev_mode in ("bus", "metro"):
+                        legs_html += (
+                            f"<div style='color:#888;font-size:12px;margin:2px 0'>"
+                            f"↳ transfer at {leg['board_stop_name']}</div>"
+                        )
+                    badge_bg = "#6A1B9A" if mode == "metro" else "#1976D2"
+                    legs_html += (
+                        f"<div style='margin:3px 0'>"
+                        f"<span style='background:{badge_bg};color:white;padding:1px 8px;"
+                        f"border-radius:4px;font-weight:700;font-size:13px'>"
+                        f"{leg.get('icon', '🚌')} {leg['route_label']}</span> "
+                        f"<span style='color:#888;font-size:12px'>"
+                        f"{leg['board_stop_name']} → {leg['alight_stop_name']} "
+                        f"({leg['num_stops']} stops, ~{leg['ride_minutes']} min, "
+                        f"every {leg['headway_min']} min)</span></div>"
+                    )
+                prev_mode = mode
             n_x = opt["transfers"]
             tag = "DIRECT" if n_x == 0 else f"{n_x} TRANSFER" + ("S" if n_x > 1 else "")
             st.markdown(
@@ -291,8 +306,11 @@ cfg = {
 result = st.session_state.get("journey", {})
 if result.get("options"):
     sel = result["options"][st.session_state.get("sel_option", 0)]
-    cfg["legs"] = [{"geometry": leg["geometry"]} for leg in sel["legs"]]
-    cfg["route_ids"] = [leg["route_id"] for leg in sel["legs"]]
+    cfg["legs"] = [{"geometry": leg["geometry"], "mode": leg.get("mode")}
+                   for leg in sel["legs"]]
+    # Only buses have live GTFS-RT positions; metro/walk legs don't.
+    cfg["route_ids"] = [leg["route_id"] for leg in sel["legs"]
+                        if leg.get("mode") == "bus"]
 render_live_map(cfg)
 st.caption(
     "🔵/🟠/🟣 lines = your journey legs · 🚌 = live buses (move every "
