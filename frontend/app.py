@@ -13,10 +13,18 @@ st.set_page_config(
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
 @st.cache_data(ttl=600)
+def _fetch_all_stops():
+    """Cached only on SUCCESS — an empty result raises so it isn't cached."""
+    r = requests.get(f"{API_BASE}/stops-list/", timeout=20)
+    stops = r.json().get('stops', [])
+    if not stops:
+        raise ValueError("no stops returned")
+    return stops
+
 def load_all_stops():
+    # If the backend was down on first load, don't poison the cache with [].
     try:
-        r = requests.get(f"{API_BASE}/stops-list/", timeout=20)
-        return r.json().get('stops', [])
+        return _fetch_all_stops()
     except Exception:
         return []
 
